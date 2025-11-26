@@ -1,0 +1,21 @@
+# System files
+.DS_Store
+Thumbs.db
+
+# Node
+node_modules/
+npm-debug.log
+
+# Rust
+target/
+**/*.rs.bk
+Cargo.lock
+
+# WebAssembly
+chess-engine/pkg/
+chess-engine/target/
+
+# IDEs
+.vscode/
+.idea/
+*.swp

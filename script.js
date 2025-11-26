@@ -1,3 +1,5 @@
+import init, { get_best_move } from './chess-engine/pkg/chess_engine.js';
+
 const PIECES = {
     w: { k: '♔', q: '♕', r: '♖', b: '♗', n: '♘', p: '♙' },
     b: { k: '♚', q: '♛', r: '♜', b: '♝', n: '♞', p: '♟' }
@@ -10,10 +12,19 @@ class ChessGame {
         this.selectedSquare = null;
         this.validMoves = [];
         this.history = [];
+        this.gameOver = false;
+        this.botEnabled = false;
+        this.isBotThinking = false;
 
         this.initBoard();
         this.renderBoard();
         this.setupEventListeners();
+        this.initWasm();
+    }
+
+    async initWasm() {
+        await init();
+        console.log("WASM Loaded");
     }
 
     initBoard() {
@@ -52,8 +63,11 @@ class ChessGame {
                     const pieceSpan = document.createElement('span');
                     pieceSpan.className = 'piece';
                     pieceSpan.textContent = PIECES[piece.color][piece.type];
-                    // Make pieces selectable only if it's their turn
-                    if (piece.color === this.turn) {
+                    // Make pieces selectable only if it's their turn AND not bot's turn (if bot is playing)
+                    const isMyPiece = piece.color === this.turn;
+                    const isBotTurn = this.botEnabled && this.turn === 'b';
+
+                    if (isMyPiece && !isBotTurn && !this.gameOver) {
                         pieceSpan.style.cursor = 'grab';
                     } else {
                         pieceSpan.style.cursor = 'default';
@@ -74,11 +88,12 @@ class ChessGame {
             }
         }
 
-        this.updateStatus();
+        this.checkGameStatus();
     }
 
     handleSquareClick(row, col) {
-        if (this.gameOver) return;
+        if (this.gameOver || this.isBotThinking) return;
+        if (this.botEnabled && this.turn === 'b') return; // Bot's turn
 
         const clickedPiece = this.board[row][col];
 
@@ -323,7 +338,56 @@ class ChessGame {
         this.selectedSquare = null;
         this.validMoves = [];
         this.renderBoard();
-        this.checkGameStatus();
+
+        // Trigger Bot if enabled and it's Black's turn
+        if (this.botEnabled && this.turn === 'b' && !this.gameOver) {
+            this.makeBotMove();
+        }
+    }
+
+    async makeBotMove() {
+        this.isBotThinking = true;
+        // Small delay to let UI update
+        await new Promise(r => setTimeout(r, 100));
+
+        const fen = this.toFEN();
+        // Depth 3 is decent for WASM, maybe 4.
+        const bestMoveStr = get_best_move(fen, 3);
+
+        if (bestMoveStr) {
+            const [r1, c1, r2, c2] = bestMoveStr.split(',').map(Number);
+            this.makeMove({ row: r1, col: c1 }, { row: r2, col: c2 });
+        } else {
+            console.log("Bot has no moves?");
+        }
+
+        this.isBotThinking = false;
+    }
+
+    toFEN() {
+        let fen = "";
+        for (let r = 0; r < 8; r++) {
+            let empty = 0;
+            for (let c = 0; c < 8; c++) {
+                const p = this.board[r][c];
+                if (p) {
+                    if (empty > 0) {
+                        fen += empty;
+                        empty = 0;
+                    }
+                    let char = p.type;
+                    if (p.color === 'w') char = char.toUpperCase();
+                    fen += char;
+                } else {
+                    empty++;
+                }
+            }
+            if (empty > 0) fen += empty;
+            if (r < 7) fen += "/";
+        }
+
+        fen += ` ${this.turn} - - 0 1`; // Simplified FEN tail
+        return fen;
     }
 
     checkGameStatus() {
@@ -343,7 +407,11 @@ class ChessGame {
         } else if (inCheck) {
             statusEl.textContent = `${this.turn === 'w' ? "White" : "Black"}'s Turn (Check!)`;
         } else {
-            statusEl.textContent = `${this.turn === 'w' ? "White" : "Black"}'s Turn`;
+            if (this.isBotThinking) {
+                statusEl.textContent = "Bot is thinking...";
+            } else {
+                statusEl.textContent = `${this.turn === 'w' ? "White" : "Black"}'s Turn`;
+            }
         }
     }
 
@@ -375,8 +443,15 @@ class ChessGame {
             this.selectedSquare = null;
             this.validMoves = [];
             this.gameOver = false;
+            this.isBotThinking = false;
             this.renderBoard();
-            this.updateStatus();
+        });
+
+        document.getElementById('bot-toggle').addEventListener('change', (e) => {
+            this.botEnabled = e.target.checked;
+            if (this.botEnabled && this.turn === 'b' && !this.gameOver) {
+                this.makeBotMove();
+            }
         });
     }
 }
