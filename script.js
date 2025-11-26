@@ -352,13 +352,16 @@ class ChessGame {
 
         const fen = this.toFEN();
         // Depth 3 is decent for WASM, maybe 4.
-        const bestMoveStr = get_best_move(fen, 3);
-
-        if (bestMoveStr) {
-            const [r1, c1, r2, c2] = bestMoveStr.split(',').map(Number);
-            this.makeMove({ row: r1, col: c1 }, { row: r2, col: c2 });
-        } else {
-            console.log("Bot has no moves?");
+        try {
+            const bestMove = get_best_move(fen, 3);
+            // bestMove is now an object: { from_row, from_col, to_row, to_col }
+            this.makeMove(
+                { row: bestMove.from_row, col: bestMove.from_col },
+                { row: bestMove.to_row, col: bestMove.to_col }
+            );
+        } catch (e) {
+            console.log("Bot has no moves or error:", e);
+            // If error is "No moves available", it's likely game over, which checkGameStatus should handle.
         }
 
         this.isBotThinking = false;
