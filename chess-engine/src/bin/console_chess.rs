@@ -1,4 +1,48 @@
 use chess_engine::{get_best_move_core, Board, Color, Move, PieceType};
+use rustyline::completion::{Completer, Pair};
+
+use rustyline::highlight::Highlighter;
+use rustyline::hint::Hinter;
+use rustyline::validate::Validator;
+use rustyline::{Context, Helper, Result};
+use std::{thread, time};
+
+#[derive(Clone)]
+struct ChessHelper {
+    commands: Vec<String>,
+}
+
+impl Completer for ChessHelper {
+    type Candidate = Pair;
+
+    fn complete(&self, line: &str, _pos: usize, _ctx: &Context<'_>) -> Result<(usize, Vec<Pair>)> {
+        if line.starts_with('/') {
+            let matches: Vec<Pair> = self
+                .commands
+                .iter()
+                .filter(|cmd| cmd.starts_with(line))
+                .map(|cmd| Pair {
+                    display: cmd.clone(),
+                    replacement: cmd.clone(),
+                })
+                .collect();
+            Ok((0, matches))
+        } else {
+            Ok((0, Vec::new()))
+        }
+    }
+}
+
+impl Hinter for ChessHelper {
+    type Hint = String;
+    fn hint(&self, _line: &str, _pos: usize, _ctx: &Context<'_>) -> Option<String> {
+        None
+    }
+}
+
+impl Highlighter for ChessHelper {}
+impl Validator for ChessHelper {}
+impl Helper for ChessHelper {}
 
 fn main() {
     println!("Welcome to Console Chess!");
@@ -8,15 +52,45 @@ fn main() {
     let mut board = Board::from_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
     let mut user_color = Color::White;
     let mut history: Vec<String> = Vec::new();
+    let mut autoplay = false;
 
     // Rustyline setup
-    let mut rl = rustyline::DefaultEditor::new().unwrap();
+    let config = rustyline::Config::builder()
+        .completion_type(rustyline::CompletionType::List)
+        .build();
+    let mut rl =
+        rustyline::Editor::<ChessHelper, rustyline::history::FileHistory>::with_config(config)
+            .unwrap();
+
+    let helper = ChessHelper {
+        commands: vec![
+            "/help".to_string(),
+            "/save".to_string(),
+            "/history".to_string(),
+            "/new".to_string(),
+            "/swap".to_string(),
+            "/autoplay".to_string(),
+            "/quit".to_string(),
+        ],
+    };
+    rl.set_helper(Some(helper));
+
     if rl.load_history("history.txt").is_err() {
         println!("No previous history.");
     }
 
     loop {
-        print_board(&board);
+        print_board(&board, history.len());
+
+        if autoplay {
+            println!("Autoplay: Swapping sides...");
+            thread::sleep(time::Duration::from_secs(2));
+            user_color = if user_color == Color::White {
+                Color::Black
+            } else {
+                Color::White
+            };
+        }
 
         if board.turn == user_color {
             // User turn
@@ -32,11 +106,12 @@ fn main() {
                         match input {
                             "/help" => {
                                 println!("Commands:");
-                                println!("  /save    - Print current FEN");
-                                println!("  /history - Show move history");
-                                println!("  /new     - Start new game");
-                                println!("  /swap    - Swap sides");
-                                println!("  /quit    - Exit");
+                                println!("  /save     - Print current FEN");
+                                println!("  /history  - Show move history");
+                                println!("  /new      - Start new game");
+                                println!("  /swap     - Swap sides");
+                                println!("  /autoplay - Auto-swap every 2s");
+                                println!("  /quit     - Exit");
                             }
                             "/save" => {
                                 let fen = board_to_fen(&board);
@@ -54,6 +129,7 @@ fn main() {
                                 );
                                 user_color = Color::White;
                                 history.clear();
+                                autoplay = false;
                                 println!("New game started.");
                             }
                             "/swap" => {
@@ -63,6 +139,11 @@ fn main() {
                                     Color::White
                                 };
                                 println!("Swapped sides. You are now {:?}.", user_color);
+                            }
+                            "/autoplay" => {
+                                autoplay = true;
+                                println!("Autoplay enabled. Press Ctrl-C to stop.");
+                                continue;
                             }
                             _ => println!("Unknown command. Type /help for list."),
                         }
@@ -118,7 +199,13 @@ fn main() {
     rl.save_history("history.txt").unwrap();
 }
 
-fn print_board(board: &Board) {
+fn print_board(board: &Board, history_len: usize) {
+    let move_num = history_len / 2 + 1;
+    let side = match board.turn {
+        Color::White => "White",
+        Color::Black => "Black",
+    };
+    println!("\nMove: {} | Side to play: {}", move_num, side);
     println!("  a b c d e f g h");
     for r in 0..8 {
         print!("{} ", 8 - r);

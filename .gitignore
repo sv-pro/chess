@@ -19,3 +19,4 @@ chess-engine/target/
 .vscode/
 .idea/
 *.swp
+chess-engine/history.txt
