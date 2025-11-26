@@ -511,7 +511,7 @@ pub fn get_best_move(fen: &str, depth: u8) -> Result<JsValue, JsValue> {
 }
 
 pub fn get_best_move_core(fen: &str, depth: u8, excluded_moves: &[Move]) -> Option<Move> {
-    let mut board = Board::from_fen(fen);
+    let board = Board::from_fen(fen);
     let mut engine = Engine::new(board);
     engine.search(depth, excluded_moves)
 }

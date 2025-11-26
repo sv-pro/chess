@@ -45,6 +45,21 @@ impl Validator for ChessHelper {}
 impl Helper for ChessHelper {}
 
 use std::collections::VecDeque;
+use std::fs::OpenOptions;
+use std::io::Write;
+
+fn log_move(move_str: &str) {
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("match.log")
+        .unwrap();
+
+    // Better to just log the move string
+    if let Err(e) = writeln!(file, "{}", move_str) {
+        eprintln!("Couldn't write to match.log: {}", e);
+    }
+}
 
 fn main() {
     println!("Welcome to Console Chess!");
@@ -56,6 +71,11 @@ fn main() {
     let mut history: Vec<String> = Vec::new();
     let mut autoplay = false;
     let mut recent_boards: VecDeque<Board> = VecDeque::with_capacity(2);
+    let mut captured_white: Vec<PieceType> = Vec::new();
+    let mut captured_black: Vec<PieceType> = Vec::new();
+
+    // Clear log on start
+    let _ = std::fs::write("match.log", "--- New Game ---\n");
 
     // Rustyline setup
     let config = rustyline::Config::builder()
@@ -83,7 +103,7 @@ fn main() {
     }
 
     loop {
-        print_board(&board, history.len());
+        print_board(&board, history.len(), &captured_white, &captured_black);
 
         if autoplay {
             println!("Autoplay: Swapping sides...");
@@ -133,6 +153,10 @@ fn main() {
                                 user_color = Color::White;
                                 history.clear();
                                 autoplay = false;
+                                recent_boards.clear();
+                                captured_white.clear();
+                                captured_black.clear();
+                                let _ = std::fs::write("match.log", "--- New Game ---\n");
                                 println!("New game started.");
                             }
                             "/swap" => {
@@ -156,8 +180,24 @@ fn main() {
                     if let Some(m) = parse_move(input) {
                         let legal_moves = chess_engine::generate_moves(&board);
                         if legal_moves.contains(&m) {
+                            // Check for capture
+                            if let Some(target) = board.get_piece(m.to_row, m.to_col) {
+                                if target.color == Color::White {
+                                    captured_white.push(target.piece_type);
+                                } else {
+                                    captured_black.push(target.piece_type);
+                                }
+                            }
+
                             board.make_move(&m);
                             history.push(input.to_string());
+                            log_move(input);
+
+                            // Update recent boards
+                            recent_boards.push_back(board.clone());
+                            if recent_boards.len() > 2 {
+                                recent_boards.pop_front();
+                            }
                         } else {
                             println!("Illegal move! Try again.");
                         }
@@ -225,8 +265,19 @@ fn main() {
                     8 - m.to_row
                 );
                 println!("Bot plays: {}", move_str);
+
+                // Check for capture
+                if let Some(target) = board.get_piece(m.to_row, m.to_col) {
+                    if target.color == Color::White {
+                        captured_white.push(target.piece_type);
+                    } else {
+                        captured_black.push(target.piece_type);
+                    }
+                }
+
                 board.make_move(&m);
-                history.push(move_str);
+                history.push(move_str.clone());
+                log_move(&move_str);
 
                 // Update recent boards
                 recent_boards.push_back(board.clone());
@@ -242,13 +293,35 @@ fn main() {
     rl.save_history("history.txt").unwrap();
 }
 
-fn print_board(board: &Board, history_len: usize) {
+fn print_board(
+    board: &Board,
+    history_len: usize,
+    captured_white: &[PieceType],
+    captured_black: &[PieceType],
+) {
     let move_num = history_len / 2 + 1;
     let side = match board.turn {
         Color::White => "White",
         Color::Black => "Black",
     };
     println!("\nMove: {} | Side to play: {}", move_num, side);
+
+    // Print captured pieces
+    if !captured_white.is_empty() {
+        print!("Captured White: ");
+        for p in captured_white {
+            print!("{:?} ", p);
+        }
+        println!();
+    }
+    if !captured_black.is_empty() {
+        print!("Captured Black: ");
+        for p in captured_black {
+            print!("{:?} ", p);
+        }
+        println!();
+    }
+
     println!("  a b c d e f g h");
     for r in 0..8 {
         print!("{} ", 8 - r);
