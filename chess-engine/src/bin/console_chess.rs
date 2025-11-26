@@ -44,6 +44,8 @@ impl Highlighter for ChessHelper {}
 impl Validator for ChessHelper {}
 impl Helper for ChessHelper {}
 
+use std::collections::VecDeque;
+
 fn main() {
     println!("Welcome to Console Chess!");
     println!("You play as White. Enter moves as 'e2e4'.");
@@ -53,6 +55,7 @@ fn main() {
     let mut user_color = Color::White;
     let mut history: Vec<String> = Vec::new();
     let mut autoplay = false;
+    let mut recent_boards: VecDeque<Board> = VecDeque::with_capacity(2);
 
     // Rustyline setup
     let config = rustyline::Config::builder()
@@ -178,8 +181,42 @@ fn main() {
         } else {
             // Bot turn
             println!("Bot is thinking...");
-            let fen = board_to_fen(&board);
-            if let Some(m) = get_best_move_core(&fen, 3) {
+            let mut excluded_moves = Vec::new();
+            let mut best_move = None;
+
+            // Try to find a non-repeating move
+            for _ in 0..5 {
+                // Try up to 5 times
+                let fen = board_to_fen(&board);
+                if let Some(m) = get_best_move_core(&fen, 3, &excluded_moves) {
+                    // Check if this move leads to a repeated state
+                    let mut test_board = board.clone();
+                    test_board.make_move(&m);
+
+                    // Simple repetition check: if we've seen this board state recently
+                    let is_repetition = recent_boards.iter().any(|b| {
+                        // Compare squares and turn. Ignore castling/ep for now as Board doesn't have them.
+                        b.squares
+                            .iter()
+                            .zip(test_board.squares.iter())
+                            .all(|(p1, p2)| p1 == p2)
+                            && b.turn == test_board.turn
+                    });
+
+                    if is_repetition {
+                        println!("Bot avoiding repetition...");
+                        excluded_moves.push(m);
+                        continue;
+                    }
+
+                    best_move = Some(m);
+                    break;
+                } else {
+                    break; // No more moves
+                }
+            }
+
+            if let Some(m) = best_move {
                 let move_str = format!(
                     "{}{}{}{}",
                     (m.from_col as u8 + b'a') as char,
@@ -190,8 +227,14 @@ fn main() {
                 println!("Bot plays: {}", move_str);
                 board.make_move(&m);
                 history.push(move_str);
+
+                // Update recent boards
+                recent_boards.push_back(board.clone());
+                if recent_boards.len() > 2 {
+                    recent_boards.pop_front();
+                }
             } else {
-                println!("Bot has no moves. Game Over.");
+                println!("Bot has no valid moves (or all lead to repetition). Game Over.");
                 break;
             }
         }

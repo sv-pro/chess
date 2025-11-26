@@ -25,7 +25,7 @@ pub struct Piece {
     pub color: Color,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct Board {
     pub squares: [Option<Piece>; 64],
     pub turn: Color,
@@ -435,35 +435,61 @@ fn is_in_check(board: &Board, color: Color) -> bool {
 }
 
 // Minimax with Alpha-Beta
-fn minimax(
-    board: &Board,
-    depth: u8,
-    mut alpha: i32,
-    mut beta: i32,
-    maximizing_player: bool,
-) -> i32 {
-    if depth == 0 {
-        return evaluate(board);
+pub struct Engine {
+    pub board: Board,
+}
+
+impl Engine {
+    pub fn new(board: Board) -> Self {
+        Engine { board }
     }
 
-    let moves = generate_moves(board);
-    if moves.is_empty() {
-        if is_in_check(board, board.turn) {
-            return if maximizing_player {
-                -100000 + (depth as i32)
-            } else {
-                100000 - (depth as i32)
-            }; // Checkmate
+    pub fn search(&mut self, depth: u8, excluded_moves: &[Move]) -> Option<Move> {
+        let mut best_move = None;
+        let mut best_score = -100000;
+        let alpha = -100000;
+        let beta = 100000;
+
+        let mut moves = generate_moves(&self.board);
+
+        // Filter excluded moves
+        if !excluded_moves.is_empty() {
+            moves.retain(|m| !excluded_moves.contains(m));
         }
-        return 0; // Stalemate
+
+        for m in moves {
+            let mut new_board = self.board.clone();
+            new_board.make_move(&m);
+
+            let score = -self.alpha_beta(&new_board, depth - 1, -beta, -alpha);
+
+            if score > best_score {
+                best_score = score;
+                best_move = Some(m);
+            }
+        }
+
+        best_move
     }
 
-    if maximizing_player {
+    fn alpha_beta(&self, board: &Board, depth: u8, mut alpha: i32, beta: i32) -> i32 {
+        if depth == 0 {
+            return evaluate(board);
+        }
+
+        let moves = generate_moves(board);
+        if moves.is_empty() {
+            if is_in_check(board, board.turn) {
+                return -100000 + (depth as i32); // Checkmate (negative because it's bad for current player)
+            }
+            return 0; // Stalemate
+        }
+
         let mut max_eval = -1000000;
         for m in moves {
             let mut b_clone = board.clone();
             b_clone.make_move(&m);
-            let eval = minimax(&b_clone, depth - 1, alpha, beta, false);
+            let eval = -self.alpha_beta(&b_clone, depth - 1, -beta, -alpha);
             max_eval = max_eval.max(eval);
             alpha = alpha.max(eval);
             if beta <= alpha {
@@ -471,60 +497,21 @@ fn minimax(
             }
         }
         max_eval
-    } else {
-        let mut min_eval = 1000000;
-        for m in moves {
-            let mut b_clone = board.clone();
-            b_clone.make_move(&m);
-            let eval = minimax(&b_clone, depth - 1, alpha, beta, true);
-            min_eval = min_eval.min(eval);
-            beta = beta.min(eval);
-            if beta <= alpha {
-                break;
-            }
-        }
-        min_eval
     }
-}
-
-pub fn get_best_move_core(fen: &str, depth: u8) -> Option<Move> {
-    let board = Board::from_fen(fen);
-    let moves = generate_moves(&board);
-
-    if moves.is_empty() {
-        return None;
-    }
-
-    let maximizing = board.turn == Color::White;
-    let mut best_move = moves[0].clone();
-    let mut best_val = if maximizing { -1000000 } else { 1000000 };
-
-    for m in moves {
-        let mut b_clone = board.clone();
-        b_clone.make_move(&m);
-        let val = minimax(&b_clone, depth - 1, -1000000, 1000000, !maximizing);
-
-        if maximizing {
-            if val > best_val {
-                best_val = val;
-                best_move = m;
-            }
-        } else {
-            if val < best_val {
-                best_val = val;
-                best_move = m;
-            }
-        }
-    }
-
-    Some(best_move)
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn get_best_move(fen: &str, depth: u8) -> Result<JsValue, JsValue> {
-    match get_best_move_core(fen, depth) {
-        Some(m) => Ok(serde_wasm_bindgen::to_value(&m)?),
+    let best_move = get_best_move_core(fen, depth, &[]);
+    match best_move {
+        Some(m) => Ok(serde_wasm_bindgen::to_value(&m).map_err(|e| e.to_string())?),
         None => Err(JsValue::from_str("No moves available")),
     }
+}
+
+pub fn get_best_move_core(fen: &str, depth: u8, excluded_moves: &[Move]) -> Option<Move> {
+    let mut board = Board::from_fen(fen);
+    let mut engine = Engine::new(board);
+    engine.search(depth, excluded_moves)
 }
